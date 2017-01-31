@@ -272,6 +272,7 @@
 				46CCD6D51E411A9E00F3D1D5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

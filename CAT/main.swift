@@ -9,5 +9,8 @@
 import Foundation
 
 
-CAT.Perform();
+print ("\nSingle thread test:\n")
+CAT.Perform (threaded: false);
 
+print ("\nMulti-thread test:\n")
+CAT.Perform (threaded: true);

@@ -14,7 +14,6 @@ import Foundation
     import Glibc
 #endif
 
-
 class GeneticAlgorithm<T> {
     
     typealias GenerateOrganismFunc<T> = ((Int, PRNG) -> T)
@@ -111,12 +110,9 @@ class GeneticAlgorithm<T> {
         }
         
         // If this is the multi-threded version, put our best plan into our index in the shared organsisms array
-        #if MULTITHREADED
         if (sharedOrganismIdx >= 0) {
             sharedOrganisms [sharedOrganismIdx] = allOrganisms [localNumberOfOrganismsMinusOne]
         }
-        #endif
-        
         
         // used in parent selection for breeders below
         var a : Float = 0.0, b : Float = 0.0
@@ -129,22 +125,20 @@ class GeneticAlgorithm<T> {
             // continue processing unless we've processed for too long
             var finished = false
             
-            while (((DispatchTime.now().uptimeNanoseconds - watchStart.uptimeNanoseconds) / 1000000) < millisecondsToProcess) {
+            while (finished == false && ((DispatchTime.now().uptimeNanoseconds - watchStart.uptimeNanoseconds) / 1000000) < millisecondsToProcess) {
                 
                 // optimization: we only call chosen organsism below when the new best organism changes
                 //didFindNewBestOrganism = false
                 
-                 #if MULTITHREADED
                 // multi-threaded check to see if someone else in the ring thread network has already found the solution; if they
                 // have, we can end processing early.
                 if (sharedOrganismsDone) {
                     finished = true
                     continue
                 }
-                #endif
                 
                 // we use three (or four) methods of parent selection for breeding; this iterates over all of those
-                for i in 0...maxBreedingPerGeneration {
+                for i in 0..<maxBreedingPerGeneration {
                     
                     // Below we have four different methods for selecting parents to breed. Each are explained individually
                     if (i == 0) {
@@ -163,14 +157,13 @@ class GeneticAlgorithm<T> {
                         b = localNumberOfOrganismsMinusOnef
                         breedOrganisms (allOrganisms [Int(a)]!, allOrganisms [Int(b)]!, newChild, prng)
                     } else if (i == 3) {
-                        #if MULTITHREADED
+                        
                         // Breed the best organism of my neighboring thread in the ring network asexually into our population
-                            var neighborOrganism : T = sharedOrganisms [neighborOrganismIdx]
-                        if (neighborOrganism == null) {
+                        let neighborOrganism = sharedOrganisms [neighborOrganismIdx]
+                        if (neighborOrganism == nil) {
                             continue
                         }
-                        breedOrganisms (neighborOrganism, neighborOrganism, newChild, prng)
-                        #endif
+                        breedOrganisms (neighborOrganism!, neighborOrganism!, newChild, prng)
                     }
                     
                     
@@ -232,12 +225,10 @@ class GeneticAlgorithm<T> {
                                 // set this flag to ensure chosenOrganism() gets called
                                 didFindNewBestOrganism = true;
                                 
-                                #if MULTITHREADED
                                 // if we're multi-threaded, make note of this new best organism in our shared organisms array
                                 if (sharedOrganismIdx >= 0) {
                                     sharedOrganisms [sharedOrganismIdx] = allOrganisms [localNumberOfOrganismsMinusOne];
                                 }
-                                #endif
                             }
                         }
                         
@@ -249,14 +240,10 @@ class GeneticAlgorithm<T> {
                 
                 // if we found a new best organism, check with our delegate to see if we need to continue processing or not
                 if (chosenOrganism (allOrganisms [localNumberOfOrganismsMinusOne]!, allOrganismScores [localNumberOfOrganismsMinusOne], numberOfGenerations, sharedOrganismIdx, prng)) {
-                    
-                    #if MULTITHREADED
                     // if we're multi-threaded and we found the correct answer, make sure to let all of the other ring-threads know so they can stop too
                     if (sharedOrganismIdx >= 0) {
                         sharedOrganismsDone = true;
                     }
-                    #endif
-                    
                     break;
                 }
                 
@@ -287,6 +274,94 @@ class GeneticAlgorithm<T> {
         print("Done in \((watchEnd.uptimeNanoseconds-watchStart.uptimeNanoseconds) / 1000000)ms and \(masterGenerations) generations\n")
         
         return bestOrganism;
+    }
+    
+    
+    
+    // Perform the genetic algorithm on many threads (as many threads as we have processing cores, specifically).
+    // To do this, we take on a ring network paradigm for the threads.  Each thread is created and given its
+    // own population of organisms which it processes separately from all other threads. Threads then
+    // pass the best organism in their population to their neighboring thread (one way only, and the neighbors
+    // wrap so that there is a full ring of communication). During the parent selection phases during breeding
+    // one of the selection methods is to asexually breed this shared organism into the thread's population.
+    // Using this scheme, each thread is able to process in a highly parallizable fashion while still incorporating
+    // the best chromosomes of other threads into its population
+    private var sharedOrganisms : [T?] = [T?]()
+    private var sharedOrganismsDone = false
+    public func PerformGeneticsThreaded (_ millisecondsToProcess:UInt64) -> T {
+        
+        // figure out the number of threads we want to use to create our ring network
+        let numThreads = ProcessInfo.processInfo.activeProcessorCount
+        if numThreads == 1 {
+            return PerformGenetics (millisecondsToProcess)
+        }
+        
+        let watchStart = DispatchTime.now()
+        
+        
+        // when each thread ends, it will check to see if its chosen plan is better than the master plan and replace it,
+        // allowing us to return the best plan conceived over all of the threads in the ring network
+        var masterBestOrganism : T? = nil
+        var masterBestOrganismScore : Float = -Float.greatestFiniteMagnitude
+        var masterGenerations = 0;
+        
+        // allocate our shared oragnisms array to allow threads to pass their best organisms along
+        sharedOrganisms = [T?](repeating:nil, count:numThreads)
+        sharedOrganismsDone = false;
+        
+        let endOfProcessingLock = NSLock()
+        var numberOfRunningThreads = 0
+        
+        for i in 0..<numThreads {
+            let sharedOrganismIdx = i
+            
+            numberOfRunningThreads += 1
+            
+            DispatchQueue.global().async(execute: {
+                // we wrap he choose organism delegate to keep try of the best organism and the number of generations processed
+                var bestOrganismScore : Float = -999999.0
+                var maxGenerations = 0
+                var bestOrganism : T?
+                
+                bestOrganism = self.PerformGenetics (millisecondsToProcess, self.generateOrganism, self.breedOrganisms, self.scoreOrganism, {(newOrganism, score, generation, sharedOrganismIdx, prng) in
+                    if (score > bestOrganismScore) {
+                        bestOrganism = newOrganism
+                        bestOrganismScore = score
+                    }
+                    maxGenerations = generation;
+                    return self.chosenOrganism(newOrganism, score, generation, sharedOrganismIdx, prng)
+                }, sharedOrganismIdx, (sharedOrganismIdx + 1) % numThreads)
+                
+                // when we're all done, lock while ensuring we have the best organism
+                endOfProcessingLock.lock()
+                
+                masterGenerations += maxGenerations
+                if (bestOrganismScore > masterBestOrganismScore) {
+                    masterBestOrganismScore = bestOrganismScore
+                    masterBestOrganism = bestOrganism
+                }
+                numberOfRunningThreads -= 1
+                
+                endOfProcessingLock.unlock()
+            })
+            
+        }
+        
+        // lock waiting for all threads to finish
+        while(numberOfRunningThreads > 0){
+            sleep(1)
+        }
+        
+        
+        
+        
+        // cleanup
+        sharedOrganismsDone = false
+        
+        let watchEnd = DispatchTime.now()
+        print("Done in \((watchEnd.uptimeNanoseconds-watchStart.uptimeNanoseconds) / 1000000)ms and \(masterGenerations) generations\n")
+        
+        return masterBestOrganism!
     }
     
 }

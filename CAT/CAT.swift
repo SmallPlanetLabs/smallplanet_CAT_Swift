@@ -43,7 +43,7 @@ class CAT {
     }
     
     
-    static func Perform() {
+    static func Perform(threaded: Bool) {
         
         /*
         let timeout = 50
@@ -51,15 +51,17 @@ class CAT {
         let allCharacters : [Int32] = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ".asciiArray)
         */
         
+        /*
         let timeout = 500;
         let targetString : [Int32] = "SUPERCALIFRAGILISTICEXPIALIDOCIOUS".asciiArray
         let allCharacters : [Int32] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".asciiArray
+        */
         
-        /*
+        
         let timeout = 50000;
         let targetString : [Int32] = Array("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed sodales velit et velit viverra, porta porta ligula sollicitudin. Pellentesque commodo eu nunc finibus mollis. Proin sit amet volutpat sem. Quisque sit amet auctor risus. Duis porta elit vestibulum velit gravida fermentum. Sed lacinia ornare odio, ut vestibulum lacus hendrerit vitae. Suspendisse egestas, ex ut tincidunt mattis, mauris ligula placerat nisi, vel lacinia elit ex feugiat ex. Sed urna lorem, eleifend id maximus sit amet, dictum eu nisi. Nunc consectetur libero gravida ultricies hendrerit. In volutpat mollis eros id rhoncus. Etiam sagittis dapibus neque at condimentum.".asciiArray)
         let allCharacters : [Int32] = Array("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\\\"#$%&\\'()*+,-./:;?@[\\\\]^_`{|}~ \\t\\n\\r\\x0b\\x0c".asciiArray)
-        */
+        
         
         
         let ga = GeneticAlgorithm<Organism>()
@@ -125,13 +127,18 @@ class CAT {
             return false
         }
         
-        
-        var finalResult = ga.PerformGenetics (UInt64(timeout))
-        
-        if(targetString == finalResult.content!) {
-            print("SUCCESS: \(String(finalResult.content!))\n")
+        var finalResult : Organism? = nil
+        if(threaded) {
+            finalResult = ga.PerformGeneticsThreaded (UInt64(timeout))
         }else{
-            print("FAILURE: \(String(finalResult.content!))\n")
+            finalResult = ga.PerformGenetics (UInt64(timeout))
+        }
+        
+        
+        if(targetString == finalResult!.content!) {
+            print("SUCCESS: \(String(finalResult!.content!))\n")
+        }else{
+            print("FAILURE: \(String(finalResult!.content!))\n")
         }
         
     }
