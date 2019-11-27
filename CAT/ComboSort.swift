@@ -21,7 +21,7 @@ public func comboSort<T:Comparable>(_ source : inout [T]) {
         var index = 0
         while !(index + gap >= source.count) {
             if source[index] > source[index + gap] {
-                swap(&source[index], &source[index + gap])
+                source.swapAt(index, index + gap)
             }
             index += 1
         }
@@ -41,8 +41,8 @@ public func comboSort<T:Comparable,U:Any>(_ source : inout [T], _ second : inout
         var index = 0
         while !(index + gap >= source.count) {
             if source[index] > source[index + gap] {
-                swap(&source[index], &source[index + gap])
-                swap(&second[index], &second[index + gap])
+                source.swapAt(index, index + gap)
+                second.swapAt(index, index + gap)
             }
             index += 1
         }
